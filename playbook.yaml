@@ -1,0 +1,88 @@
+---
+- hosts: localhost
+  connection: local
+  remote_user: root
+  become: yes
+  tasks:
+    - name: apt update 
+      apt: 
+       update_cache: yes
+          
+    - name: Install latest version of "openjdk" 
+      apt:
+       name: openjdk-8-jre-headless
+       state: present
+ 
+    - name: Install nexus
+      ansible.builtin.unarchive:
+        src: https://download.sonatype.com/nexus/3/latest-unix.tar.gz
+        dest: /opt/
+        remote_src: yes
+      
+    - name: Get nexus-3*
+      find: 
+        path: /opt/
+        file_type: directory
+        patterns: 'nexus-3*'
+      register: result
+
+    - name: print result
+      debug: 
+        var: result.files[0]['path']
+    
+    - name: rename nexus dir
+      command: mv "{{result.files[0]['path']}}"  /opt/nexus
+      when: result.matched == 1
+      
+    - name: add nexus user
+      user:
+       name: nexus
+       
+    - name: add nexus user in sudoers
+      lineinfile:
+       path: /etc/sudoers
+       state: present
+       line: 'nexus   ALL=(ALL)   NOPASSWD: ALL' 
+       
+    - name: change owner 
+      file:
+       path: /opt/nexus
+       owner:  nexus
+       group:  nexus
+       recurse: yes
+       
+    - name: Change sonatype-work dir owner 
+      file: 
+       path: /opt/sonatype-work
+       owner:  nexus
+       group:  nexus
+       recurse: yes
+       
+    - name: check nexus user
+      lineinfile:
+       path: /opt/nexus/bin/nexus.rc
+       regexp: '^#run_as_user='
+       line: run_as_user="nexus"
+       
+    - name: nexus symbolic link 
+      ansible.builtin.file:
+       src: /opt/nexus/bin/nexus
+       dest: /etc/init.d/nexus
+       state: link
+     
+    - name: Copy nexus.service
+      copy:
+       src: /home/toka/ansible/files/nexus.service
+       dest: /etc/systemd/system/nexus.service
+       mode: a=rwx
+     
+    - name: reread configs
+      systemd:
+       daemon_reload: yes
+       
+    - name: start nexus
+      service:
+       name: nexus
+       state: started
+       
+       
